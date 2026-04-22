@@ -13,26 +13,26 @@ function midiToNote(m) {
 }
 
 // ─── SAFE RANGES (Concert Pitch, MIDI) — CW-411 ──────────────────────────────
-// Source: CW-411 Safe Ranges PDF — all values concert pitch
+// Source: CW-411 Safe Ranges PDF — all values concert pitch — INSTRUCTOR VERIFIED
 const SAFE_RANGES = {
-  Piccolo:        { low: 74, high: 96  }, // D5–C7
-  Flute:          { low: 60, high: 93  }, // C4–A6
-  Oboe:           { low: 58, high: 89  }, // Bb3–F6
-  "English Horn": { low: 52, high: 81  }, // E3–A5
-  Clarinet:       { low: 50, high: 84  }, // D3–C6 (concert)
-  Bassoon:        { low: 34, high: 75  }, // Bb1–Eb5
-  "French Horn":  { low: 42, high: 77  }, // F#2–F5
-  Trumpet:        { low: 52, high: 84  }, // E3–C6 (concert)
-  Flugelhorn:     { low: 52, high: 82  }, // E3–Bb5 (concert)
-  "Bass Trombone":{ low: 22, high: 70  }, // Bb0–Bb4
-  Trombone:       { low: 40, high: 72  }, // E2–C5
-  Timpani:        { low: 38, high: 57  }, // D2–A3
-  Violin:         { low: 55, high: 93  }, // G3–A6
-  Viola:          { low: 48, high: 81  }, // C3–A5
-  Cello:          { low: 36, high: 81  }, // C2–A5
-  "Double Bass":  { low: 28, high: 55  }, // E1–G3 (concert, sounds 8va lower)
-  Harp:           { low: 24, high: 103 }, // C1–G7
+  Flute:            { low: 60, high: 91  }, // C4–G6
+  Piccolo:          { low: 74, high: 103 }, // D5–G7  (sounds 8va higher than written)
+  Oboe:             { low: 60, high: 84  }, // C4–C6
+  "English Horn":   { low: 52, high: 76  }, // E3–E5
+  Clarinet:         { low: 52, high: 84  }, // E3–C6
+  Bassoon:          { low: 46, high: 82  }, // Bb2–Bb5
+  "French Horn":    { low: 48, high: 67  }, // C3–G4
+  Trumpet:          { low: 60, high: 84  }, // C4–C6
+  Flugelhorn:       { low: 57, high: 65  }, // A3–F4
+  "Bass Trombone":  { low: 46, high: 65  }, // Bb2–F4
+  Timpani:          { low: 38, high: 57  }, // D2–A3
+  Violin:           { low: 55, high: 93  }, // G3–A6
+  Viola:            { low: 48, high: 81  }, // C3–A5
+  Cello:            { low: 36, high: 81  }, // C2–A5
+  "Double Bass":    { low: 28, high: 55  }, // E1–G3  (sounds 8va lower than written)
+  Harp:             { low: 24, high: 103 }, // C1–G7
 };
+
 
 // ─── INSTRUMENT ALIAS RESOLVER ────────────────────────────────────────────────
 const ALIASES = [
@@ -47,8 +47,8 @@ const ALIASES = [
   [["french horn","horn in f","corno"], "French Horn"],
   [["horn"], "French Horn"],
   [["flugelhorn","flügelhorn"], "Flugelhorn"],
-  [["trumpet","trompette","tromba","trompete"], "Trumpet"],
-  [["bass trombone"], "Bass Trombone"],
+  [["c trumpet","trumpet in c","bb trumpet","trumpet in bb","trumpet","trompette","tromba","trompete"], "Trumpet"],
+  [["bass trombone","trombone"], "Bass Trombone"],
   [["trombone","posaune"], "Trombone"],
   [["timpani","kettledrum","pauken"], "Timpani"],
   [["violin","violine","violino","fiddle"], "Violin"],
