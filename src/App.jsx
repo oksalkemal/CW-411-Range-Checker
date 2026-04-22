@@ -24,7 +24,7 @@ const SAFE_RANGES = {
   "French Horn":    { low: 48, high: 67  }, // C3–G4
   Trumpet:          { low: 60, high: 84  }, // C4–C6
   Flugelhorn:       { low: 57, high: 65  }, // A3–F4
-  "Bass Trombone":  { low: 46, high: 65  }, // Bb2–F4
+  "Bass Trombone":  { low: 34, high: 65  }, // Bb2–F4
   Timpani:          { low: 38, high: 57  }, // D2–A3
   Violin:           { low: 55, high: 93  }, // G3–A6
   Viola:            { low: 48, high: 81  }, // C3–A5
