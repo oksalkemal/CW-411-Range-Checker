@@ -20,7 +20,7 @@ const SAFE_RANGES = {
   Oboe:             { low: 60, high: 84  }, // C4–C6
   "English Horn":   { low: 52, high: 76  }, // E3–E5
   Clarinet:         { low: 52, high: 84  }, // E3–C6
-  Bassoon:          { low: 46, high: 82  }, // Bb2–Bb5
+  Bassoon:          { low: 34, high: 82  }, // Bb2–Bb5
   "French Horn":    { low: 48, high: 67  }, // C3–G4
   Trumpet:          { low: 60, high: 84  }, // C4–C6
   Flugelhorn:       { low: 57, high: 65  }, // A3–F4
