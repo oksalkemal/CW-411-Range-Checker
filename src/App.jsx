@@ -20,11 +20,11 @@ const SAFE_RANGES = {
   Oboe:             { low: 60, high: 84  }, // C4–C6
   "English Horn":   { low: 52, high: 76  }, // E3–E5
   Clarinet:         { low: 52, high: 84  }, // E3–C6
-  Bassoon:          { low: 34, high: 82  }, // Bb2–Bb5
+  Bassoon:          { low: 46, high: 82  }, // Bb2–Bb5
   "French Horn":    { low: 48, high: 67  }, // C3–G4
   Trumpet:          { low: 60, high: 84  }, // C4–C6
   Flugelhorn:       { low: 57, high: 65  }, // A3–F4
-  "Bass Trombone":  { low: 34, high: 65  }, // Bb2–F4
+  "Bass Trombone":  { low: 34, high: 65  }, // Bb1–F4
   Timpani:          { low: 38, high: 57  }, // D2–A3
   Violin:           { low: 55, high: 93  }, // G3–A6
   Viola:            { low: 48, high: 81  }, // C3–A5
@@ -319,6 +319,17 @@ export default function App() {
                 </div>
                 <div style={{ fontSize: 12, color: "#555", marginTop: 16 }}>
                   Accepts .xml · .musicxml &nbsp;|&nbsp; Export from Sibelius, Finale, MuseScore, Dorico
+                </div>
+                <div style={{
+                  marginTop: 12,
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  background: "rgba(245,200,66,0.1)", border: "1px solid rgba(245,200,66,0.35)",
+                  borderRadius: 6, padding: "5px 12px",
+                }}>
+                  <span style={{ fontSize: 14 }}>⚠️</span>
+                  <span style={{ fontSize: 11, color: "#F5C842", fontWeight: 500 }}>
+                    Compressed .mxl files are <u>not</u> supported — export as uncompressed MusicXML (.xml) from your notation software
+                  </span>
                 </div>
               </div>
               <input ref={fileRef} type="file" accept=".xml,.musicxml" style={{ display: "none" }}
