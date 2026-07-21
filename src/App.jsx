@@ -15,22 +15,24 @@ function midiToNote(m) {
 // ─── SAFE RANGES (Concert Pitch, MIDI) — CW-411 ──────────────────────────────
 // Source: CW-411 Safe Ranges PDF — all values concert pitch — INSTRUCTOR VERIFIED
 const SAFE_RANGES = {
-  Flute:            { low: 60, high: 91  }, // C4–G6
-  Piccolo:          { low: 74, high: 103 }, // D5–G7  (sounds 8va higher than written)
-  Oboe:             { low: 60, high: 84  }, // C4–C6
-  "English Horn":   { low: 52, high: 76  }, // E3–E5
-  Clarinet:         { low: 52, high: 84  }, // E3–C6
-  Bassoon:          { low: 46, high: 82  }, // Bb2–Bb5
-  "French Horn":    { low: 48, high: 67  }, // C3–G4
-  Trumpet:          { low: 60, high: 84  }, // C4–C6
-  Flugelhorn:       { low: 57, high: 65  }, // A3–F4
-  "Bass Trombone":  { low: 34, high: 65  }, // Bb1–F4
-  Timpani:          { low: 38, high: 57  }, // D2–A3
-  Violin:           { low: 55, high: 93  }, // G3–A6
-  Viola:            { low: 48, high: 81  }, // C3–A5
-  Cello:            { low: 36, high: 81  }, // C2–A5
-  "Double Bass":    { low: 28, high: 55  }, // E1–G3  (sounds 8va lower than written)
-  Harp:             { low: 24, high: 103 }, // C1–G7
+  // bufferHigh = caution semitones above safe high (0 = no caution zone, straight to red)
+  // bufferLow  = caution semitones below safe low  (0 = no caution zone, straight to red)
+  Flute:            { low: 60, high: 91,  bufferHigh: 5, bufferLow: 0 }, // C4–G6   | caution ↑ Ab6–C7
+  Piccolo:          { low: 74, high: 103, bufferHigh: 5, bufferLow: 0 }, // D5–G7   | caution ↑ Ab7–C8
+  Oboe:             { low: 60, high: 84,  bufferHigh: 6, bufferLow: 2 }, // C4–C6   | caution ↑ C#6–F#6 | ↓ Bb3–B3
+  "English Horn":   { low: 52, high: 76,  bufferHigh: 2, bufferLow: 0 }, // E3–E5   | caution ↑ F5–F#5
+  Clarinet:         { low: 52, high: 84,  bufferHigh: 6, bufferLow: 0 }, // E3–C6   | caution ↑ C#6–F#6
+  Bassoon:          { low: 41, high: 70,  bufferHigh: 6, bufferLow: 7 }, // F2–Bb4  | caution ↑ B4–E5 | ↓ Bb1–E2
+  "French Horn":    { low: 48, high: 67,  bufferHigh: 5, bufferLow: 0 }, // C3–G4   | caution ↑ Ab4–C5
+  Trumpet:          { low: 60, high: 84,  bufferHigh: 2, bufferLow: 4 }, // C4–C6   | caution ↑ C#6–D6 | ↓ Ab3–B3
+  Flugelhorn:       { low: 57, high: 65,  bufferHigh: 2, bufferLow: 0 }, // A3–F4   | caution ↑ F#4–G4
+  "Bass Trombone":  { low: 34, high: 65,  bufferHigh: 5, bufferLow: 5 }, // Bb1–F4  | caution ↑ F#4–Bb4 | ↓ F1–A1
+  Timpani:          { low: 38, high: 57,  bufferHigh: 0, bufferLow: 0 }, // D2–A3   | no caution zones
+  Violin:           { low: 55, high: 93,  bufferHigh: 5, bufferLow: 0 }, // G3–A6   | caution ↑ Bb6–D7
+  Viola:            { low: 48, high: 81,  bufferHigh: 5, bufferLow: 0 }, // C3–A5   | caution ↑ Bb5–D6
+  Cello:            { low: 36, high: 81,  bufferHigh: 8, bufferLow: 0 }, // C2–A5   | caution ↑ Bb5–F6
+  "Double Bass":    { low: 28, high: 55,  bufferHigh: 5, bufferLow: 0 }, // E1–G3   | caution ↑ Ab3–C4
+  Harp:             { low: 24, high: 103, bufferHigh: 0, bufferLow: 0 }, // C1–G7   | no caution zones
 };
 
 
@@ -95,7 +97,7 @@ function parseMusicXML(xmlText) {
     const instrKey = meta.normalized;
     const safeRange = instrKey ? SAFE_RANGES[instrKey] : null;
 
-    if (!partStats[pid]) partStats[pid] = { rawName: meta.rawName, normalized: instrKey, total: 0, vCount: 0 };
+    if (!partStats[pid]) partStats[pid] = { rawName: meta.rawName, normalized: instrKey, total: 0, vCount: 0, cautionCount: 0, outOfRangeCount: 0 };
 
     let transpose = 0; // chromatic semitones
 
@@ -123,19 +125,36 @@ function parseMusicXML(xmlText) {
         const concertMidi  = writtenMidi + transpose;
         partStats[pid].total++;
 
-        if (safeRange && (concertMidi < safeRange.low || concertMidi > safeRange.high)) {
-          partStats[pid].vCount++;
-          violations.push({
-            pid,
-            displayName: meta.rawName,
-            instrKey,
-            measure: mNum,
-            concertMidi,
-            concertNote: midiToNote(concertMidi),
-            writtenNote: transpose !== 0 ? midiToNote(writtenMidi) : null,
-            direction: concertMidi < safeRange.low ? "LOW" : "HIGH",
-            safeRange,
-          });
+        if (safeRange) {
+          const bufH = safeRange.bufferHigh || 0;
+          const bufL = safeRange.bufferLow  || 0;
+          const aboveSafe = concertMidi > safeRange.high;
+          const belowSafe = concertMidi < safeRange.low;
+
+          let direction = null;
+          if (aboveSafe) {
+            direction = (bufH > 0 && concertMidi <= safeRange.high + bufH) ? "HIGH_CAUTION" : "HIGH";
+          } else if (belowSafe) {
+            direction = (bufL > 0 && concertMidi >= safeRange.low - bufL) ? "LOW_CAUTION" : "LOW";
+          }
+
+          if (direction) {
+            const isCaution = direction === "HIGH_CAUTION" || direction === "LOW_CAUTION";
+            if (isCaution) partStats[pid].cautionCount++;
+            else partStats[pid].outOfRangeCount++;
+            partStats[pid].vCount++;
+            violations.push({
+              pid,
+              displayName: meta.rawName,
+              instrKey,
+              measure: mNum,
+              concertMidi,
+              concertNote: midiToNote(concertMidi),
+              writtenNote: transpose !== 0 ? midiToNote(writtenMidi) : null,
+              direction,
+              safeRange,
+            });
+          }
         }
       });
     });
@@ -157,6 +176,8 @@ const COLORS = {
   blue:    "#2563EB",
   blueDim: "rgba(37,99,235,0.15)",
   gold:    "#F5C842",
+  amber:   "#F59E0B",
+  amberDim:"rgba(245,158,11,0.15)",
   text:    "#F0EDEA",
   muted:   "#888",
   success: "#22C55E",
@@ -216,8 +237,9 @@ export default function App() {
   // ── Derived data ──────────────────────────────────────────────────────────
   const filtered = result
     ? result.violations.filter(v =>
-        filter === "all" ? true :
-        filter === "LOW" || filter === "HIGH" ? v.direction === filter :
+        filter === "all"          ? true :
+        filter === "CAUTION"      ? (v.direction === "HIGH_CAUTION" || v.direction === "LOW_CAUTION") :
+        filter === "OUT_OF_RANGE" ? (v.direction === "HIGH" || v.direction === "LOW") :
         v.instrKey === filter
       )
     : [];
@@ -230,7 +252,9 @@ export default function App() {
   const heatmap = result ? buildHeatmap(result) : null;
 
   // Stats
-  const totalViolations  = result ? result.violations.length : 0;
+  const totalFlagged     = result ? result.violations.length : 0;
+  const totalCaution     = result ? result.violations.filter(v => v.direction === "HIGH_CAUTION" || v.direction === "LOW_CAUTION").length : 0;
+  const totalOutOfRange  = result ? result.violations.filter(v => v.direction === "HIGH" || v.direction === "LOW").length : 0;
   const affectedParts    = result ? new Set(result.violations.map(v => v.pid)).size : 0;
   const affectedMeasures = result ? new Set(result.violations.map(v => v.measure)).size : 0;
 
@@ -393,31 +417,40 @@ export default function App() {
 
               {/* Stats row */}
               <div className="fade-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-                {[
-                  { label: "Total Violations", value: totalViolations, accent: totalViolations > 0 ? COLORS.red : COLORS.success, icon: totalViolations > 0 ? "⚠" : "✓" },
-                  { label: "Parts Affected", value: affectedParts, accent: COLORS.gold, icon: "🎻" },
-                  { label: "Measures w/ Issues", value: affectedMeasures, accent: "#A78BFA", icon: "📏" },
-                  { label: "Total Measures", value: result.maxMeasure, accent: COLORS.muted, icon: "📄" },
-                ].map(s => (
-                  <div key={s.label} style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "16px 20px" }}>
-                    <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: COLORS.muted, marginBottom: 8 }}>{s.label}</div>
-                    <div style={{ fontSize: 30, fontWeight: 700, color: s.accent, fontFamily: "'JetBrains Mono', monospace" }}>{s.value}</div>
-                  </div>
-                ))}
+                <div style={{ background: COLORS.card, border: `1px solid ${totalOutOfRange > 0 ? COLORS.red : COLORS.border}`, borderRadius: 12, padding: "16px 20px" }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: COLORS.muted, marginBottom: 8 }}>Out of Range</div>
+                  <div style={{ fontSize: 30, fontWeight: 700, color: totalOutOfRange > 0 ? COLORS.red : COLORS.success, fontFamily: "'JetBrains Mono', monospace" }}>{totalOutOfRange}</div>
+                  <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 4 }}>notes to rewrite</div>
+                </div>
+                <div style={{ background: COLORS.card, border: `1px solid ${totalCaution > 0 ? COLORS.amber : COLORS.border}`, borderRadius: 12, padding: "16px 20px" }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: COLORS.muted, marginBottom: 8 }}>Caution Zone</div>
+                  <div style={{ fontSize: 30, fontWeight: 700, color: totalCaution > 0 ? COLORS.amber : COLORS.success, fontFamily: "'JetBrains Mono', monospace" }}>{totalCaution}</div>
+                  <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 4 }}>notes to review</div>
+                </div>
+                <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "16px 20px" }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: COLORS.muted, marginBottom: 8 }}>Parts Flagged</div>
+                  <div style={{ fontSize: 30, fontWeight: 700, color: COLORS.gold, fontFamily: "'JetBrains Mono', monospace" }}>{affectedParts}</div>
+                  <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 4 }}>of {Object.keys(result.partStats).length} parts</div>
+                </div>
+                <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: "16px 20px" }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: COLORS.muted, marginBottom: 8 }}>Measures Flagged</div>
+                  <div style={{ fontSize: 30, fontWeight: 700, color: "#A78BFA", fontFamily: "'JetBrains Mono', monospace" }}>{affectedMeasures}</div>
+                  <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 4 }}>of {result.maxMeasure} total</div>
+                </div>
               </div>
 
-              {totalViolations === 0 ? (
+              {totalFlagged === 0 ? (
                 <div className="fade-up-2" style={{ textAlign: "center", padding: "60px 32px", background: `rgba(34,197,94,.08)`, border: `1px solid rgba(34,197,94,.25)`, borderRadius: 16 }}>
                   <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
                   <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, color: COLORS.success, marginBottom: 8 }}>All notes within safe ranges!</div>
-                  <div style={{ color: COLORS.muted }}>No CW-411 range violations detected in this score.</div>
+                  <div style={{ color: COLORS.muted }}>No CW-411 range issues detected in this score.</div>
                 </div>
               ) : (
                 <>
                   {/* Heatmap */}
                   <div className="fade-up-2" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 20, marginBottom: 20, overflowX: "auto" }}>
                     <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".1em", color: COLORS.muted, marginBottom: 16 }}>
-                      Score Overview — Violation Heatmap
+                      Score Overview — Notes to Review
                     </div>
                     <ScoreHeatmap heatmap={heatmap} result={result} onSelectMeasure={setExpandedMeasure} selectedMeasure={expandedMeasure} />
                   </div>
@@ -435,18 +468,21 @@ export default function App() {
                   {/* Filter bar */}
                   <div className="fade-up-3" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
                     <span style={{ fontSize: 12, color: COLORS.muted, marginRight: 4 }}>Filter:</span>
-                    {["all","LOW","HIGH",...uniqueInstruments].map(f => (
-                      <FilterChip key={f} label={f === "all" ? "All Violations" : f === "LOW" ? "⬇ Too Low" : f === "HIGH" ? "⬆ Too High" : f}
-                        active={filter === f} onClick={() => setFilter(f)} />
+                    <FilterChip label="All Notes to Review" active={filter === "all"} onClick={() => setFilter("all")} color="default" />
+                    <FilterChip label="🔴 Out of Range" active={filter === "OUT_OF_RANGE"} onClick={() => setFilter("OUT_OF_RANGE")} color="red" />
+                    <FilterChip label="🟡 Caution" active={filter === "CAUTION"} onClick={() => setFilter("CAUTION")} color="amber" />
+                    <FilterChip label="⬇ Too Low" active={filter === "LOW"} onClick={() => setFilter("LOW")} color="blue" />
+                    {uniqueInstruments.map(f => (
+                      <FilterChip key={f} label={f} active={filter === f} onClick={() => setFilter(f)} color="default" />
                     ))}
                     {filter !== "all" && <span style={{ fontSize: 12, color: COLORS.muted }}>{filtered.length} shown</span>}
                   </div>
 
-                  {/* Violations table */}
+                  {/* Notes to Review table */}
                   <div className="fade-up-3" style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, overflow: "hidden" }}>
                     <div style={{ padding: "16px 20px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>Violation Details</div>
-                      <div style={{ fontSize: 12, color: COLORS.muted, fontFamily: "'JetBrains Mono',monospace" }}>{filtered.length} result{filtered.length !== 1 ? "s" : ""}</div>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>Notes to Review</div>
+                      <div style={{ fontSize: 12, color: COLORS.muted, fontFamily: "'JetBrains Mono',monospace" }}>{filtered.length} note{filtered.length !== 1 ? "s" : ""}</div>
                     </div>
 
                     {/* Table header */}
@@ -456,7 +492,7 @@ export default function App() {
 
                     <div style={{ maxHeight: 480, overflowY: "auto" }}>
                       {filtered.length === 0 ? (
-                        <div style={{ textAlign: "center", padding: 40, color: COLORS.muted }}>No violations match this filter.</div>
+                        <div style={{ textAlign: "center", padding: 40, color: COLORS.muted }}>No notes match this filter.</div>
                       ) : (
                         filtered.map((v, i) => <ViolationRow key={i} v={v} i={i} />)
                       )}
@@ -470,18 +506,29 @@ export default function App() {
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
                       {Object.entries(SAFE_RANGES).map(([name, r]) => {
-                        const hasViolation = result.violations.some(v => v.instrKey === name);
+                        const hasOutOfRange = result.violations.some(v => v.instrKey === name && (v.direction === "HIGH" || v.direction === "LOW"));
+                        const hasCaution    = result.violations.some(v => v.instrKey === name && (v.direction === "HIGH_CAUTION" || v.direction === "LOW_CAUTION"));
+                        const borderCol = hasOutOfRange ? COLORS.red : hasCaution ? COLORS.amber : COLORS.border;
+                        const bgCol     = hasOutOfRange ? COLORS.redDim : hasCaution ? COLORS.amberDim : COLORS.card;
+                        const noteCol   = hasOutOfRange ? COLORS.red : hasCaution ? COLORS.amber : COLORS.gold;
                         return (
                           <div key={name} style={{
-                            background: hasViolation ? COLORS.redDim : COLORS.card,
-                            border: `1px solid ${hasViolation ? COLORS.red : COLORS.border}`,
+                            background: bgCol,
+                            border: `1px solid ${borderCol}`,
                             borderRadius: 8, padding: "8px 12px",
                             display: "flex", justifyContent: "space-between", alignItems: "center",
                           }}>
                             <span style={{ fontSize: 12 }}>{name}</span>
-                            <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: hasViolation ? COLORS.red : COLORS.gold }}>
-                              {midiToNote(r.low)}–{midiToNote(r.high)}
-                            </span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono', monospace", color: noteCol }}>
+                                {midiToNote(r.low)}–{midiToNote(r.high)}
+                              </span>
+                              {(r.bufferHigh > 0 || r.bufferLow > 0) && (
+                                <span style={{ fontSize: 9, color: COLORS.amber, fontFamily: "'JetBrains Mono',monospace" }}>
+                                  {r.bufferLow > 0 ? `-${r.bufferLow}/` : ""}{r.bufferHigh > 0 ? `+${r.bufferHigh}` : ""}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
@@ -500,10 +547,23 @@ export default function App() {
 // ─── SUB-COMPONENTS ───────────────────────────────────────────────────────────
 
 function ViolationRow({ v, i }) {
-  const isHigh = v.direction === "HIGH";
+  const dir = v.direction;
+  const isHighCaution = dir === "HIGH_CAUTION";
+  const isLowCaution  = dir === "LOW_CAUTION";
+  const isHigh        = dir === "HIGH";
+  const isLow         = dir === "LOW";
+  const isCaution     = isHighCaution || isLowCaution;
+  const noteColor    = isCaution ? COLORS.amber : isLow ? COLORS.blue : COLORS.red;
+  const badgeBg      = isCaution ? COLORS.amberDim : isLow ? COLORS.blueDim : COLORS.redDim;
+  const badgeBorder  = isCaution ? COLORS.amber : isLow ? "#2563EB" : COLORS.red;
+  const badgeLabel   = isHighCaution ? "🟡 High Caution"
+                     : isLowCaution  ? "🟡 Low Caution"
+                     : isHigh        ? "🔴 Too High"
+                     :                 "🔴 Too Low";
+
   return (
     <div style={{
-      display: "grid", gridTemplateColumns: "80px 1fr 110px 90px 90px 1fr",
+      display: "grid", gridTemplateColumns: "80px 1fr 110px 120px 90px 1fr",
       padding: "10px 20px",
       background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,.02)",
       borderBottom: `1px solid ${COLORS.border}`,
@@ -514,35 +574,35 @@ function ViolationRow({ v, i }) {
         m.{v.measure}
       </span>
       <span style={{ fontWeight: 500 }}>{v.displayName}</span>
-      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 700, color: isHigh ? COLORS.red : COLORS.blue }}>
+      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 700, color: noteColor }}>
         {v.concertNote}
         {v.writtenNote && <span style={{ fontSize: 10, color: COLORS.muted, fontWeight: 400 }}> (wr:{v.writtenNote})</span>}
       </span>
       <span>
         <span style={{
-          display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
-          background: isHigh ? COLORS.redDim : COLORS.blueDim,
-          color: isHigh ? COLORS.red : "#60A5FA",
-          border: `1px solid ${isHigh ? COLORS.red : "#2563EB"}`,
+          display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
+          background: badgeBg, color: noteColor, border: `1px solid ${badgeBorder}`,
         }}>
-          {isHigh ? "▲ HIGH" : "▼ LOW"}
+          {badgeLabel}
         </span>
       </span>
-      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: isHigh ? COLORS.red : "#60A5FA" }}>
+      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: noteColor }}>
         {v.concertNote}
       </span>
       <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: COLORS.muted }}>
         {midiToNote(v.safeRange.low)}–{midiToNote(v.safeRange.high)}
+        {v.safeRange.bufferHigh && <span style={{ color: COLORS.amber }}> (+{v.safeRange.bufferHigh})</span>}
       </span>
     </div>
   );
 }
 
-function FilterChip({ label, active, onClick }) {
+function FilterChip({ label, active, onClick, color = "default" }) {
+  const activeColor = color === "red" ? COLORS.red : color === "amber" ? COLORS.amber : color === "blue" ? "#2563EB" : COLORS.red;
   return (
     <button onClick={onClick} style={{
-      background: active ? COLORS.red : COLORS.card,
-      border: `1px solid ${active ? COLORS.red : COLORS.border}`,
+      background: active ? activeColor : COLORS.card,
+      border: `1px solid ${active ? activeColor : COLORS.border}`,
       color: active ? "#fff" : COLORS.text,
       padding: "5px 12px", borderRadius: 6, cursor: "pointer",
       fontSize: 12, fontFamily: "'DM Sans',sans-serif", fontWeight: 500,
@@ -554,38 +614,46 @@ function FilterChip({ label, active, onClick }) {
 }
 
 function PartCard({ s, onClick, active }) {
-  const pct = s.total > 0 ? Math.round((s.vCount / s.total) * 100) : 0;
+  const pct         = s.total > 0 ? Math.round((s.vCount / s.total) * 100) : 0;
+  const dangerPct   = s.total > 0 ? Math.round((s.outOfRangeCount / s.total) * 100) : 0;
+  const cautionPct  = s.total > 0 ? Math.round((s.cautionCount / s.total) * 100) : 0;
+  const borderColor = active ? (s.outOfRangeCount > 0 ? COLORS.red : COLORS.amber) : COLORS.border;
+  const bgColor     = active ? (s.outOfRangeCount > 0 ? COLORS.redDim : COLORS.amberDim) : COLORS.card;
   return (
     <button onClick={onClick} style={{
-      background: active ? COLORS.redDim : COLORS.card,
-      border: `1px solid ${active ? COLORS.red : COLORS.border}`,
+      background: bgColor,
+      border: `1px solid ${borderColor}`,
       borderRadius: 10, padding: "12px 16px", cursor: "pointer",
       textAlign: "left", transition: "all .15s", fontFamily: "'DM Sans',sans-serif",
     }}
     onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = "#444"; }}
     onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = COLORS.border; }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: COLORS.text, marginBottom: 6 }}>{s.rawName}</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ flex: 1, height: 4, background: "#333", borderRadius: 2, overflow: "hidden" }}>
-          <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: COLORS.red, borderRadius: 2 }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <div style={{ flex: 1, height: 6, background: "#333", borderRadius: 3, overflow: "hidden", display: "flex" }}>
+          <div style={{ width: `${Math.min(dangerPct, 100)}%`, height: "100%", background: COLORS.red }} />
+          <div style={{ width: `${Math.min(cautionPct, 100 - dangerPct)}%`, height: "100%", background: COLORS.amber }} />
         </div>
-        <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: COLORS.red, fontWeight: 700 }}>
+        <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: s.outOfRangeCount > 0 ? COLORS.red : COLORS.amber, fontWeight: 700 }}>
           {s.vCount}
         </span>
       </div>
-      <div style={{ fontSize: 10, color: COLORS.muted, marginTop: 4 }}>
-        {pct}% of notes out of range
+      <div style={{ display: "flex", gap: 8, fontSize: 10 }}>
+        {s.outOfRangeCount > 0 && <span style={{ color: COLORS.red }}>🔴 {s.outOfRangeCount} out of range</span>}
+        {s.cautionCount > 0    && <span style={{ color: COLORS.amber }}>🟡 {s.cautionCount} caution</span>}
       </div>
     </button>
   );
 }
 
 function buildHeatmap(result) {
-  // { [partId]: { [measure]: count } }
+  // { [partId]: { [measure]: { danger: n, caution: n } } }
   const map = {};
   result.violations.forEach(v => {
     if (!map[v.pid]) map[v.pid] = {};
-    map[v.pid][v.measure] = (map[v.pid][v.measure] || 0) + 1;
+    if (!map[v.pid][v.measure]) map[v.pid][v.measure] = { danger: 0, caution: 0 };
+    if (v.direction === "CAUTION") map[v.pid][v.measure].caution++;
+    else map[v.pid][v.measure].danger++;
   });
   return map;
 }
@@ -623,21 +691,26 @@ function ScoreHeatmap({ heatmap, result, onSelectMeasure, selectedMeasure }) {
               {s.rawName}
             </div>
             {measureNums.map(m => {
-              const count = rowData[m] || 0;
+              const cell       = rowData[m] || { danger: 0, caution: 0 };
+              const total      = cell.danger + cell.caution;
               const isSelected = selectedMeasure === m;
-              const intensity = count === 0 ? 0 : Math.min(count / 4, 1);
-              const bg = count === 0
+              const bg = total === 0
                 ? "#222"
-                : `rgba(200,16,46,${0.25 + intensity * 0.75})`;
+                : cell.danger > 0
+                  ? `rgba(200,16,46,${0.35 + Math.min(cell.danger / 4, 1) * 0.65})`
+                  : `rgba(245,158,11,${0.35 + Math.min(cell.caution / 4, 1) * 0.65})`;
+              const title = total === 0
+                ? `m.${m}: OK`
+                : `m.${m}: ${cell.danger > 0 ? cell.danger + " out of range" : ""}${cell.danger > 0 && cell.caution > 0 ? " · " : ""}${cell.caution > 0 ? cell.caution + " caution" : ""}`;
               return (
                 <div key={m}
-                  onClick={() => count > 0 && onSelectMeasure(isSelected ? null : m)}
-                  title={count > 0 ? `m.${m}: ${count} violation${count !== 1 ? "s" : ""}` : `m.${m}: OK`}
+                  onClick={() => total > 0 && onSelectMeasure(isSelected ? null : m)}
+                  title={title}
                   style={{
                     width: CELL, height: CELL, flexShrink: 0,
                     background: bg,
                     border: isSelected ? `1px solid ${COLORS.gold}` : "1px solid transparent",
-                    borderRadius: 2, cursor: count > 0 ? "pointer" : "default",
+                    borderRadius: 2, cursor: total > 0 ? "pointer" : "default",
                     transition: "opacity .1s",
                   }}
                 />
@@ -651,18 +724,22 @@ function ScoreHeatmap({ heatmap, result, onSelectMeasure, selectedMeasure }) {
           Showing first {maxShow} of {measures} measures. Violations in measures {maxShow + 1}–{measures} still appear in the table below.
         </div>
       )}
-      <div style={{ display: "flex", gap: 16, marginTop: 12, marginLeft: LABEL_W, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 16, marginTop: 12, marginLeft: LABEL_W, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           <div style={{ width: 12, height: 12, background: "#222", borderRadius: 2 }} />
-          <span style={{ fontSize: 11, color: COLORS.muted }}>OK</span>
+          <span style={{ fontSize: 11, color: COLORS.muted }}>Within range</span>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <div style={{ width: 12, height: 12, background: "rgba(200,16,46,.4)", borderRadius: 2 }} />
-          <span style={{ fontSize: 11, color: COLORS.muted }}>1–2 violations</span>
+          <div style={{ width: 12, height: 12, background: "rgba(245,158,11,.5)", borderRadius: 2 }} />
+          <span style={{ fontSize: 11, color: COLORS.muted }}>Caution zone</span>
+        </div>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <div style={{ width: 12, height: 12, background: "rgba(200,16,46,.5)", borderRadius: 2 }} />
+          <span style={{ fontSize: 11, color: COLORS.muted }}>Out of range</span>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           <div style={{ width: 12, height: 12, background: COLORS.red, borderRadius: 2 }} />
-          <span style={{ fontSize: 11, color: COLORS.muted }}>3+ violations</span>
+          <span style={{ fontSize: 11, color: COLORS.muted }}>Heavily out of range</span>
         </div>
       </div>
     </div>
