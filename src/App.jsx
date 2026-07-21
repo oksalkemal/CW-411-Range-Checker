@@ -647,13 +647,14 @@ function PartCard({ s, onClick, active }) {
 }
 
 function buildHeatmap(result) {
-  // { [partId]: { [measure]: { danger: n, caution: n } } }
+  // { [partId]: { [measure]: { high: n, low: n, caution: n } } }
   const map = {};
   result.violations.forEach(v => {
     if (!map[v.pid]) map[v.pid] = {};
-    if (!map[v.pid][v.measure]) map[v.pid][v.measure] = { danger: 0, caution: 0 };
-    if (v.direction === "CAUTION") map[v.pid][v.measure].caution++;
-    else map[v.pid][v.measure].danger++;
+    if (!map[v.pid][v.measure]) map[v.pid][v.measure] = { high: 0, low: 0, caution: 0 };
+    if (v.direction === "HIGH")                                    map[v.pid][v.measure].high++;
+    else if (v.direction === "LOW")                                map[v.pid][v.measure].low++;
+    else if (v.direction === "HIGH_CAUTION" || v.direction === "LOW_CAUTION") map[v.pid][v.measure].caution++;
   });
   return map;
 }
@@ -691,17 +692,23 @@ function ScoreHeatmap({ heatmap, result, onSelectMeasure, selectedMeasure }) {
               {s.rawName}
             </div>
             {measureNums.map(m => {
-              const cell       = rowData[m] || { danger: 0, caution: 0 };
-              const total      = cell.danger + cell.caution;
+              const cell       = rowData[m] || { high: 0, low: 0, caution: 0 };
+              const total      = cell.high + cell.low + cell.caution;
               const isSelected = selectedMeasure === m;
+              // Priority: too high (red) > too low (blue) > caution (amber)
               const bg = total === 0
                 ? "#222"
-                : cell.danger > 0
-                  ? `rgba(200,16,46,${0.35 + Math.min(cell.danger / 4, 1) * 0.65})`
-                  : `rgba(245,158,11,${0.35 + Math.min(cell.caution / 4, 1) * 0.65})`;
-              const title = total === 0
-                ? `m.${m}: OK`
-                : `m.${m}: ${cell.danger > 0 ? cell.danger + " out of range" : ""}${cell.danger > 0 && cell.caution > 0 ? " · " : ""}${cell.caution > 0 ? cell.caution + " caution" : ""}`;
+                : cell.high > 0
+                  ? `rgba(200,16,46,${0.4 + Math.min(cell.high / 4, 1) * 0.6})`
+                  : cell.low > 0
+                    ? `rgba(37,99,235,${0.4 + Math.min(cell.low / 4, 1) * 0.6})`
+                    : `rgba(245,158,11,${0.4 + Math.min(cell.caution / 4, 1) * 0.6})`;
+              const parts = [
+                cell.high    > 0 ? `${cell.high} too high`    : "",
+                cell.low     > 0 ? `${cell.low} too low`      : "",
+                cell.caution > 0 ? `${cell.caution} caution`  : "",
+              ].filter(Boolean);
+              const title = total === 0 ? `m.${m}: OK` : `m.${m}: ${parts.join(" · ")}`;
               return (
                 <div key={m}
                   onClick={() => total > 0 && onSelectMeasure(isSelected ? null : m)}
@@ -730,16 +737,16 @@ function ScoreHeatmap({ heatmap, result, onSelectMeasure, selectedMeasure }) {
           <span style={{ fontSize: 11, color: COLORS.muted }}>Within range</span>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <div style={{ width: 12, height: 12, background: "rgba(245,158,11,.5)", borderRadius: 2 }} />
-          <span style={{ fontSize: 11, color: COLORS.muted }}>Caution zone</span>
+          <div style={{ width: 12, height: 12, background: COLORS.amber, borderRadius: 2 }} />
+          <span style={{ fontSize: 11, color: COLORS.amber }}>Caution zone</span>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          <div style={{ width: 12, height: 12, background: "rgba(200,16,46,.5)", borderRadius: 2 }} />
-          <span style={{ fontSize: 11, color: COLORS.muted }}>Out of range</span>
+          <div style={{ width: 12, height: 12, background: COLORS.blue, borderRadius: 2 }} />
+          <span style={{ fontSize: 11, color: COLORS.blue }}>Too Low</span>
         </div>
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           <div style={{ width: 12, height: 12, background: COLORS.red, borderRadius: 2 }} />
-          <span style={{ fontSize: 11, color: COLORS.muted }}>Heavily out of range</span>
+          <span style={{ fontSize: 11, color: COLORS.red }}>Too High</span>
         </div>
       </div>
     </div>
