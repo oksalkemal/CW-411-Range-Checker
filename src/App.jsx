@@ -529,11 +529,13 @@ export default function App() {
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
                       {Object.entries(SAFE_RANGES).map(([name, r]) => {
-                        const hasOutOfRange = result.violations.some(v => v.instrKey === name && (v.direction === "HIGH" || v.direction === "LOW"));
-                        const hasCaution    = result.violations.some(v => v.instrKey === name && (v.direction === "HIGH_CAUTION" || v.direction === "LOW_CAUTION"));
-                        const borderCol = hasOutOfRange ? COLORS.red : hasCaution ? COLORS.amber : COLORS.border;
-                        const bgCol     = hasOutOfRange ? COLORS.redDim : hasCaution ? COLORS.amberDim : COLORS.card;
-                        const noteCol   = hasOutOfRange ? COLORS.red : hasCaution ? COLORS.amber : COLORS.gold;
+                        const hasHigh    = result.violations.some(v => v.instrKey === name && v.direction === "HIGH");
+                        const hasLow     = result.violations.some(v => v.instrKey === name && v.direction === "LOW");
+                        const hasCaution = result.violations.some(v => v.instrKey === name && (v.direction === "HIGH_CAUTION" || v.direction === "LOW_CAUTION"));
+                        // Priority: red (too high) > blue (too low) > amber (caution only)
+                        const borderCol = hasHigh ? COLORS.red : hasLow ? COLORS.blue : hasCaution ? COLORS.amber : COLORS.border;
+                        const bgCol     = hasHigh ? COLORS.redDim : hasLow ? COLORS.blueDim : hasCaution ? COLORS.amberDim : COLORS.card;
+                        const noteCol   = hasHigh ? COLORS.red : hasLow ? COLORS.blue : hasCaution ? COLORS.amber : COLORS.gold;
                         return (
                           <div key={name} style={{
                             background: bgCol,
