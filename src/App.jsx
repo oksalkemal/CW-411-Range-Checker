@@ -15,31 +15,42 @@ function midiToNote(m) {
 // ─── SAFE RANGES (Concert Pitch, MIDI) ─────────────────────────────────────────
 // Source: Instructor-verified safe ranges — all values concert pitch
 const SAFE_RANGES = {
-  // bufferHigh = caution semitones above safe high (0 = no caution zone, straight to red)
-  // bufferLow  = caution semitones below safe low  (0 = no caution zone, straight to red)
-  Flute:            { low: 60, high: 91,  bufferHigh: 5, bufferLow: 0 }, // C4–G6   | caution ↑ Ab6–C7
+  // Standard orchestral score order — woodwinds → saxes → brass → perc → harp → strings
+  // bufferHigh = caution semitones above safe high (0 = no caution, straight to red)
+  // bufferLow  = caution semitones below safe low  (0 = no caution, straight to red)
+
+  // ── Woodwinds ─────────────────────────────────────────────────────────────
   Piccolo:          { low: 74, high: 103, bufferHigh: 5, bufferLow: 0 }, // D5–G7   | caution ↑ Ab7–C8
+  Flute:            { low: 60, high: 91,  bufferHigh: 5, bufferLow: 0 }, // C4–G6   | caution ↑ Ab6–C7
   Oboe:             { low: 60, high: 84,  bufferHigh: 6, bufferLow: 2 }, // C4–C6   | caution ↑ C#6–F#6 | ↓ Bb3–B3
   "English Horn":   { low: 52, high: 76,  bufferHigh: 2, bufferLow: 0 }, // E3–E5   | caution ↑ F5–F#5
   Clarinet:         { low: 52, high: 84,  bufferHigh: 6, bufferLow: 0 }, // E3–C6   | caution ↑ C#6–F#6
   Bassoon:          { low: 41, high: 70,  bufferHigh: 6, bufferLow: 7 }, // F2–Bb4  | caution ↑ B4–E5 | ↓ Bb1–E2
+
+  // ── Saxophones ────────────────────────────────────────────────────────────
+  "Soprano Sax":    { low: 56, high: 73,  bufferHigh: 6, bufferLow: 0 }, // Ab3–Db5 | caution ↑ D5–Ab5
+  "Alto Sax":       { low: 49, high: 66,  bufferHigh: 6, bufferLow: 0 }, // Db3–F#4 | caution ↑ G4–C5
+  "Tenor Sax":      { low: 44, high: 61,  bufferHigh: 6, bufferLow: 0 }, // Ab2–Db4 | caution ↑ D4–G4
+  "Baritone Sax":   { low: 37, high: 54,  bufferHigh: 6, bufferLow: 0 }, // Db2–F#3 | caution ↑ G3–C4
+
+  // ── Brass ─────────────────────────────────────────────────────────────────
   "French Horn":    { low: 48, high: 67,  bufferHigh: 5, bufferLow: 0 }, // C3–G4   | caution ↑ Ab4–C5
   Trumpet:          { low: 60, high: 84,  bufferHigh: 2, bufferLow: 4 }, // C4–C6   | caution ↑ C#6–D6 | ↓ Ab3–B3
   Flugelhorn:       { low: 57, high: 65,  bufferHigh: 2, bufferLow: 0 }, // A3–F4   | caution ↑ F#4–G4
+  Euphonium:        { low: 40, high: 70,  bufferHigh: 6, bufferLow: 0 }, // E2–Bb4  | caution ↑ B4–E5
   "Bass Trombone":  { low: 34, high: 65,  bufferHigh: 5, bufferLow: 5 }, // Bb1–F4  | caution ↑ F#4–Bb4 | ↓ F1–A1
+
+  // ── Percussion ────────────────────────────────────────────────────────────
   Timpani:          { low: 38, high: 57,  bufferHigh: 0, bufferLow: 0 }, // D2–A3   | no caution zones
+
+  // ── Harp ──────────────────────────────────────────────────────────────────
+  Harp:             { low: 24, high: 103, bufferHigh: 0, bufferLow: 0 }, // C1–G7   | no caution zones
+
+  // ── Strings ───────────────────────────────────────────────────────────────
   Violin:           { low: 55, high: 93,  bufferHigh: 5, bufferLow: 0 }, // G3–A6   | caution ↑ Bb6–D7
   Viola:            { low: 48, high: 81,  bufferHigh: 5, bufferLow: 0 }, // C3–A5   | caution ↑ Bb5–D6
   Cello:            { low: 36, high: 81,  bufferHigh: 8, bufferLow: 0 }, // C2–A5   | caution ↑ Bb5–F6
   "Double Bass":    { low: 28, high: 55,  bufferHigh: 5, bufferLow: 0 }, // E1–G3   | caution ↑ Ab3–C4
-  Harp:             { low: 24, high: 103, bufferHigh: 0, bufferLow: 0 }, // C1–G7   | no caution zones
-  // ── Saxophones (all concert pitch; Bb instruments -2/-14, Eb instruments -9/-21) ──
-  "Soprano Sax":    { low: 56, high: 73,  bufferHigh: 6, bufferLow: 0 }, // Ab3–Db5 | caution ↑ D5–Ab5  (Bb instrument, written Bb3–Eb5)
-  "Alto Sax":       { low: 49, high: 66,  bufferHigh: 6, bufferLow: 0 }, // Db3–F#4 | caution ↑ G4–C5   (Eb instrument, written Bb3–Eb5)
-  "Tenor Sax":      { low: 44, high: 61,  bufferHigh: 6, bufferLow: 0 }, // Ab2–Db4 | caution ↑ D4–G4   (Bb instrument, written Bb3–Eb5)
-  "Baritone Sax":   { low: 37, high: 54,  bufferHigh: 6, bufferLow: 0 }, // Db2–F#3 | caution ↑ G3–C4   (Eb instrument, written Bb3–Eb5)
-  // ── Euphonium (concert pitch, bass clef) ──────────────────────────────────
-  Euphonium:        { low: 40, high: 70,  bufferHigh: 6, bufferLow: 0 }, // E2–Bb4  | caution ↑ B4–E5
 };
 
 
@@ -257,8 +268,10 @@ export default function App() {
       )
     : [];
 
+  const SCORE_ORDER = Object.keys(SAFE_RANGES);
   const uniqueInstruments = result
     ? [...new Set(result.violations.map(v => v.instrKey).filter(Boolean))]
+        .sort((a, b) => SCORE_ORDER.indexOf(a) - SCORE_ORDER.indexOf(b))
     : [];
 
   // Group violations by measure for heatmap
