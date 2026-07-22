@@ -384,8 +384,9 @@ export default function App() {
 
               {/* Safe range reference */}
               <div style={{ marginTop: 36 }}>
-                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".1em", color: COLORS.muted, marginBottom: 12 }}>
-                  Safe Range Reference (Concert Pitch)
+                <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".1em", color: COLORS.muted, marginBottom: 12, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span>Safe Range Reference (Concert Pitch)</span>
+                  <span style={{ textTransform: "none", letterSpacing: 0, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: COLORS.muted, background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 4, padding: "1px 6px" }}>Middle C = C4</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
                   {Object.entries(SAFE_RANGES).map(([name, r]) => (
@@ -524,8 +525,9 @@ export default function App() {
 
                   {/* Per-instrument breakdown */}
                   <div style={{ marginTop: 24 }}>
-                    <div className="fade-up-3" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".1em", color: COLORS.muted, marginBottom: 12 }}>
-                      Safe Ranges Reference
+                    <div className="fade-up-3" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".1em", color: COLORS.muted, marginBottom: 12, display: "flex", alignItems: "center", gap: 10 }}>
+                      <span>Safe Ranges Reference</span>
+                      <span style={{ textTransform: "none", letterSpacing: 0, fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: COLORS.muted, background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 4, padding: "1px 6px" }}>Middle C = C4</span>
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
                       {Object.entries(SAFE_RANGES).map(([name, r]) => {
