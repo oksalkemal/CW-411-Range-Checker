@@ -12,8 +12,8 @@ function midiToNote(m) {
   return NOTE_NAMES[((m % 12) + 12) % 12] + (Math.floor(m / 12) - 1);
 }
 
-// ─── SAFE RANGES (Concert Pitch, MIDI) — CW-411 ──────────────────────────────
-// Source: CW-411 Safe Ranges PDF — all values concert pitch — INSTRUCTOR VERIFIED
+// ─── SAFE RANGES (Concert Pitch, MIDI) ─────────────────────────────────────────
+// Source: Instructor-verified safe ranges — all values concert pitch
 const SAFE_RANGES = {
   // bufferHigh = caution semitones above safe high (0 = no caution zone, straight to red)
   // bufferLow  = caution semitones below safe low  (0 = no caution zone, straight to red)
@@ -33,6 +33,13 @@ const SAFE_RANGES = {
   Cello:            { low: 36, high: 81,  bufferHigh: 8, bufferLow: 0 }, // C2–A5   | caution ↑ Bb5–F6
   "Double Bass":    { low: 28, high: 55,  bufferHigh: 5, bufferLow: 0 }, // E1–G3   | caution ↑ Ab3–C4
   Harp:             { low: 24, high: 103, bufferHigh: 0, bufferLow: 0 }, // C1–G7   | no caution zones
+  // ── Saxophones (all concert pitch; Bb instruments -2/-14, Eb instruments -9/-21) ──
+  "Soprano Sax":    { low: 56, high: 73,  bufferHigh: 6, bufferLow: 0 }, // Ab3–Db5 | caution ↑ D5–Ab5  (Bb instrument, written Bb3–Eb5)
+  "Alto Sax":       { low: 49, high: 66,  bufferHigh: 6, bufferLow: 0 }, // Db3–F#4 | caution ↑ G4–C5   (Eb instrument, written Bb3–Eb5)
+  "Tenor Sax":      { low: 44, high: 61,  bufferHigh: 6, bufferLow: 0 }, // Ab2–Db4 | caution ↑ D4–G4   (Bb instrument, written Bb3–Eb5)
+  "Baritone Sax":   { low: 37, high: 54,  bufferHigh: 6, bufferLow: 0 }, // Db2–F#3 | caution ↑ G3–C4   (Eb instrument, written Bb3–Eb5)
+  // ── Euphonium (concert pitch, bass clef) ──────────────────────────────────
+  Euphonium:        { low: 40, high: 70,  bufferHigh: 6, bufferLow: 0 }, // E2–Bb4  | caution ↑ B4–E5
 };
 
 
@@ -58,6 +65,12 @@ const ALIASES = [
   [["violoncello","cello"], "Cello"],
   [["double bass","contrabass","kontrabass"], "Double Bass"],
   [["harp","harpe","arpa"], "Harp"],
+  // Saxophones — order matters: more specific first
+  [["soprano sax","soprano saxophone","sax soprano","saxofone soprano"], "Soprano Sax"],
+  [["alto sax","alto saxophone","sax alto","saxofone alto","eb alto"], "Alto Sax"],
+  [["baritone sax","bari sax","baritone saxophone","sax baritone","saxofone barítono"], "Baritone Sax"],
+  [["tenor sax","tenor saxophone","sax tenor","saxofone tenor"], "Tenor Sax"],
+  [["euphonium","eufonium","euphonim","baritone horn","baritono"], "Euphonium"],
 ];
 
 function resolveInstrument(name) {
@@ -280,10 +293,7 @@ export default function App() {
               }}>🎼</div>
               <div>
                 <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, letterSpacing: ".01em" }}>
-                  Range Checker
-                </div>
-                <div style={{ fontSize: 11, color: COLORS.muted, fontWeight: 500, letterSpacing: ".08em", textTransform: "uppercase", marginTop: 1 }}>
-                  Berklee CW-411 · Contemporary Writing & Production
+                  Instrument Range Checker
                 </div>
               </div>
             </div>
@@ -311,10 +321,10 @@ export default function App() {
           {state === "idle" && (
             <div className="fade-up" style={{ maxWidth: 640, margin: "60px auto 0" }}>
               <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 32, fontWeight: 700, textAlign: "center", marginBottom: 8 }}>
-                Safe Range Detection
+                Instrument Range Checker
               </h1>
               <p style={{ textAlign: "center", color: COLORS.muted, fontSize: 15, marginBottom: 40 }}>
-                Upload your MusicXML score and instantly see every note that falls outside CW-411 safe ranges.
+                Upload your MusicXML score and instantly see every note that falls outside the safe ranges.
               </p>
 
               {/* Upload zone */}
@@ -362,7 +372,7 @@ export default function App() {
               {/* Safe range reference */}
               <div style={{ marginTop: 36 }}>
                 <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".1em", color: COLORS.muted, marginBottom: 12 }}>
-                  CW-411 Safe Range Reference (Concert Pitch)
+                  Safe Range Reference (Concert Pitch)
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 8 }}>
                   {Object.entries(SAFE_RANGES).map(([name, r]) => (
@@ -443,7 +453,7 @@ export default function App() {
                 <div className="fade-up-2" style={{ textAlign: "center", padding: "60px 32px", background: `rgba(34,197,94,.08)`, border: `1px solid rgba(34,197,94,.25)`, borderRadius: 16 }}>
                   <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
                   <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, color: COLORS.success, marginBottom: 8 }}>All notes within safe ranges!</div>
-                  <div style={{ color: COLORS.muted }}>No CW-411 range issues detected in this score.</div>
+                  <div style={{ color: COLORS.muted }}>No range issues detected in this score.</div>
                 </div>
               ) : (
                 <>
@@ -502,7 +512,7 @@ export default function App() {
                   {/* Per-instrument breakdown */}
                   <div style={{ marginTop: 24 }}>
                     <div className="fade-up-3" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".1em", color: COLORS.muted, marginBottom: 12 }}>
-                      CW-411 Safe Ranges Reference
+                      Safe Ranges Reference
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
                       {Object.entries(SAFE_RANGES).map(([name, r]) => {
