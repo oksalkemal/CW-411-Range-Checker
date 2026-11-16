@@ -113,11 +113,19 @@ async function extractMxl(file) {
    for an artificial harmonic (one octave above the top open string; past that
    the hand cannot hold the 4th stretch).
    ═══════════════════════════════════════════════════════════════════════════ */
+// opens      — open strings low→high, concert pitch
+// maxStopped — highest practical stopped note for an artificial harmonic
+// fifths     — tuned in 5ths (vln/vla/vc) or 4ths (bass). Decides whether two
+//              stopped notes at the same hand position form a barred 5th (hard)
+//              or an easy 4th.
+// reach      — practical semitones above an open string while also stopping a neighbour
+// spanOk     — semitones between stopped fingers that sit inside the hand frame
+// spanMax    — widest span still holdable; beyond this it is not a simultaneity
 const STRING_DATA = {
-  Violin:        { opens: [55, 62, 69, 76], maxStopped: 88 }, // G3 D4 A4 E5
-  Viola:         { opens: [48, 55, 62, 69], maxStopped: 81 }, // C3 G3 D4 A4
-  Cello:         { opens: [36, 43, 50, 57], maxStopped: 69 }, // C2 G2 D3 A3
-  "Double Bass": { opens: [28, 33, 38, 43], maxStopped: 55 }, // E1 A1 D2 G2 (sounding)
+  Violin:        { opens: [55, 62, 69, 76], maxStopped: 88, fifths: true,  reach: 17, spanOk: 5, spanMax: 7 }, // G3 D4 A4 E5
+  Viola:         { opens: [48, 55, 62, 69], maxStopped: 81, fifths: true,  reach: 14, spanOk: 5, spanMax: 7 }, // C3 G3 D4 A4
+  Cello:         { opens: [36, 43, 50, 57], maxStopped: 69, fifths: true,  reach: 19, spanOk: 5, spanMax: 8 }, // C2 G2 D3 A3
+  "Double Bass": { opens: [28, 33, 38, 43], maxStopped: 55, fifths: false, reach: 12, spanOk: 3, spanMax: 5 }, // E1 A1 D2 G2 (sounding)
 };
 
 const PARTIAL_SEMI  = { 2: 12, 3: 19, 4: 24, 5: 28, 6: 31, 7: 34, 8: 36 };
@@ -232,6 +240,197 @@ function resolveHarmonics(score) {
 
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   4c. MULTIPLE STOPS — string-assignment solver
+   A chord on a bowed string instrument is playable only if every note can sit
+   on its own string, those strings are adjacent (the bow cannot skip one), and
+   the stopped fingers fall inside one hand frame. Strings cannot cross, so the
+   lowest pitch always takes the lowest chosen string.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function stringCombos(n) {
+  const out = [];
+  const walk = (start, acc) => {
+    if (acc.length === n) { out.push([...acc]); return; }
+    for (let i = start; i < 4; i++) { acc.push(i); walk(i + 1, acc); acc.pop(); }
+  };
+  walk(0, []);
+  return out;
+}
+
+function analyzeStop(pitches, instrKey) {
+  const data = STRING_DATA[instrKey];
+  if (!data) return null;
+  const n = pitches.length;
+  if (n > 4) return { verdict: "error", reason: "too-many", noteCount: n };
+
+  const found = [];
+  for (const combo of stringCombos(n)) {
+    const positions = [];
+    let fits = true;
+    for (let k = 0; k < n; k++) {
+      const pos = pitches[k] - data.opens[combo[k]];
+      if (pos < 0 || pos > data.reach) { fits = false; break; }
+      positions.push(pos);
+    }
+    if (!fits) continue;
+
+    const stopped = positions.filter(x => x > 0);
+    const span = stopped.length > 1 ? Math.max(...stopped) - Math.min(...stopped) : 0;
+    let adjacent = true;
+    for (let k = 1; k < combo.length; k++) if (combo[k] !== combo[k - 1] + 1) adjacent = false;
+    found.push({ combo, positions, span, adjacent, stoppedCount: stopped.length });
+  }
+  if (!found.length) return { verdict: "error", reason: "no-assignment", noteCount: n };
+
+  // Prefer a bowable assignment, then the narrowest hand, then the fewest fingers
+  found.sort((a, b) =>
+    (a.adjacent === b.adjacent ? 0 : a.adjacent ? -1 : 1) ||
+    a.span - b.span ||
+    a.stoppedCount - b.stoppedCount
+  );
+  const best = found[0];
+  const res = {
+    ...best, noteCount: n,
+    strings: best.combo.map(i => midiToNote(data.opens[i])),
+    skipped: best.adjacent ? [] : data.opens
+      .map((o, i) => (i > best.combo[0] && i < best.combo[best.combo.length - 1] && !best.combo.includes(i) ? midiToNote(o) : null))
+      .filter(Boolean),
+    allOpen: best.stoppedCount === 0,
+  };
+
+  if (!best.adjacent)              return { ...res, verdict: "error",   reason: "non-adjacent" };
+  if (best.span > data.spanMax)    return { ...res, verdict: "error",   reason: "span" };
+  if (best.span > data.spanOk)     return { ...res, verdict: "caution", reason: "span-stretch" };
+  if (data.fifths && best.stoppedCount >= 2 && best.span === 0)
+                                   return { ...res, verdict: "caution", reason: "barred-fifth" };
+  return { ...res, verdict: "ok", reason: "ok" };
+}
+
+/* ── Nearest playable chord ────────────────────────────────────────────────
+   Strategy order is musical, not merely numerical:
+     A. octave displacement — every pitch class is kept, so the harmony survives
+     B. drop a note        — when no respelling works
+   A chromatic nudge is deliberately not offered: moving a note by a semitone
+   changes the chord itself, which is worse advice than re-voicing or thinning. */
+const OCTAVE_SHIFTS = [0, -12, 12, -24, 24];
+
+function pitchSubsets(arr, size) {
+  const out = [];
+  const walk = (start, acc) => {
+    if (acc.length === size) { out.push([...acc]); return; }
+    for (let i = start; i < arr.length; i++) { acc.push(arr[i]); walk(i + 1, acc); acc.pop(); }
+  };
+  walk(0, []);
+  return out;
+}
+
+function suggestStop(pitches, instrKey) {
+  if (!STRING_DATA[instrKey]) return null;
+  const range = SAFE_RANGES[instrKey];
+  const inRange = p => !range || (p >= range.low && p <= range.high);
+  const n = pitches.length;
+
+  // A. octave displacement
+  if (n >= 2 && n <= 4) {
+    const cands = [];
+    const walk = (i, acc, total, movedCount) => {
+      if (i === n) {
+        if (movedCount === 0) return;                      // that is the input, not a fix
+        const sorted = [...acc].sort((a, b) => a - b);
+        if (new Set(sorted).size !== n) return;            // two notes collided
+        if (!sorted.every(inRange)) return;
+        const a = analyzeStop(sorted, instrKey);
+        if (!a || (a.verdict !== "ok" && a.verdict !== "caution")) return;
+        cands.push({
+          kind: "octave", pitches: sorted, verdict: a.verdict, total, movedCount,
+          moves: acc.map((pp, k) => (pp === pitches[k] ? null : { from: pitches[k], to: pp })).filter(Boolean),
+        });
+        return;
+      }
+      for (const s of OCTAVE_SHIFTS)
+        walk(i + 1, [...acc, pitches[i] + s], total + Math.abs(s), movedCount + (s ? 1 : 0));
+    };
+    walk(0, [], 0, 0);
+
+    if (cands.length) {
+      // Closest first; then a clean chord; then one that keeps the original
+      // bottom note, so the bass line survives the respelling.
+      const keepsBass = c => c.pitches[0] === pitches[0];
+      cands.sort((a, b) =>
+        a.total - b.total ||
+        (a.verdict === b.verdict ? 0 : a.verdict === "ok" ? -1 : 1) ||
+        (keepsBass(a) === keepsBass(b) ? 0 : keepsBass(a) ? -1 : 1) ||
+        a.movedCount - b.movedCount
+      );
+      return cands[0];
+    }
+  }
+
+  // B. drop a note, keeping the outer voices where possible
+  for (let size = Math.min(n - 1, 4); size >= 2; size--) {
+    const cands = [];
+    for (const sub of pitchSubsets(pitches, size)) {
+      if (!sub.every(inRange)) continue;
+      const a = analyzeStop(sub, instrKey);
+      if (!a || (a.verdict !== "ok" && a.verdict !== "caution")) continue;
+      cands.push({
+        kind: "drop", pitches: sub, verdict: a.verdict,
+        dropped: pitches.filter(pp => !sub.includes(pp)),
+        keepsTop: sub.includes(pitches[n - 1]),
+        keepsBottom: sub.includes(pitches[0]),
+      });
+    }
+    if (cands.length) {
+      cands.sort((a, b) =>
+        (a.verdict === b.verdict ? 0 : a.verdict === "ok" ? -1 : 1) ||
+        (a.keepsTop === b.keepsTop ? 0 : a.keepsTop ? -1 : 1) ||
+        (a.keepsBottom === b.keepsBottom ? 0 : a.keepsBottom ? -1 : 1)
+      );
+      return cands[0];
+    }
+  }
+  return null;
+}
+
+/* One short clause the student can act on. */
+function suggestionText(pitches, instrKey) {
+  const s = suggestStop(pitches, instrKey);
+  if (!s) return "No close respelling is playable — divide the part, or give one of these notes to another instrument.";
+  const chord = s.pitches.map(midiToNote).join("+");
+  const marginal = s.verdict === "caution" ? " — playable, though still demanding" : "";
+  if (s.kind === "octave") {
+    const how = s.moves.map(m => `${midiToNote(m.from)} → ${midiToNote(m.to)}`).join(", ");
+    return `Try ${chord} (${how})${marginal}.`;
+  }
+  return `Try ${chord} — drop the ${s.dropped.map(midiToNote).join(" and ")}${marginal}.`;
+}
+
+/* Simultaneities inside one part — a part's own chords, including a sustained
+   note under a moving line. Harmonics contribute their sounding pitch. */
+function buildPartStops(part) {
+  const eff = part.notes
+    .filter(n => !n.isRest && !n.isGrace && !n.isSuppressed && n.concertMidi != null)
+    .map(n => ({ ...n, pitch: n.harmonic && n.soundingMidi != null ? n.soundingMidi : n.concertMidi }));
+
+  const onsets = [...new Set(eff.map(n => Math.round(n.onsetQ * 480)))].sort((a, b) => a - b).map(v => v / 480);
+  const groups = [];
+  for (const t of onsets) {
+    const sounding = eff.filter(n => n.onsetQ <= t + 1e-6 && n.onsetQ + n.durQ > t + 1e-6);
+    if (sounding.length < 2) continue;
+    const pitches = [...new Set(sounding.map(n => n.pitch))].sort((a, b) => a - b);
+    if (pitches.length < 2) continue;      // unison doubling is not a stop
+    groups.push({
+      onsetQ: t,
+      measure: sounding[0].measure,
+      pitches,
+      divisi: sounding.some(n => n.divisi),
+      minDur: Math.min(...sounding.map(n => n.durQ)),
+    });
+  }
+  return groups;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
    5. SCORE MODEL BUILDER
    ─────────────────────────────────────────────────────────────────────────
    Produces a time-aware representation of the whole score:
@@ -270,6 +469,7 @@ function buildScoreModel(xmlText) {
     let divisions = 1;      // divisions per quarter note
     let transpose = 0;      // chromatic semitones (written → concert)
     let keyFifths = 0;
+    let divisi = false;      // set by a "div." direction, cleared by "unis."
     const clefByStaff = {};
     let elapsedQ = 0;       // absolute time at start of current measure
     const partNotes = [];
@@ -304,6 +504,16 @@ function buildScoreModel(xmlText) {
           });
           const k = el.querySelector("key fifths");
           if (k) keyFifths = parseInt(k.textContent) || 0;
+        }
+
+        else if (tag === "direction") {
+          // "div." / "divisi" turn division on; "unis." / "non div." turn it off.
+          // Check the off-patterns first — "non div." contains "div".
+          const txt = Array.from(el.querySelectorAll("words")).map(w => w.textContent || "").join(" ").toLowerCase();
+          if (txt) {
+            if (/\bunis|non\s*\.?\s*div|tutti/.test(txt)) divisi = false;
+            else if (/\bdiv/.test(txt)) divisi = true;
+          }
         }
 
         else if (tag === "backup") {
@@ -374,6 +584,7 @@ function buildScoreModel(xmlText) {
                   tieStop:  !!el.querySelector('tie[type="stop"]'),
                   clef: clefByStaff[staff] || clefByStaff["1"] || null,
                   harmonic, soundingMidi: null, isSuppressed: false,
+                  divisi,
                 };
                 partNotes.push(note);
                 allNotes.push(note);
@@ -574,6 +785,81 @@ const RULES = [
       return issues;
     },
   },
+
+  {
+    id: "stops",
+    name: "Multiple Stops",
+    tier: 1,
+    description: "Double, triple and quadruple stops — string assignment and hand span",
+    defaultEnabled: true,
+    run: (score) => {
+      const issues = [];
+      const seen = new Set();
+
+      for (const part of score.parts) {
+        if (!part.normalized || !STRING_DATA[part.normalized]) continue;
+        const data = STRING_DATA[part.normalized];
+
+        for (const g of buildPartStops(part)) {
+          if (g.divisi) continue;                       // the part is divided; not a stop
+          const key = `${part.id}|${g.measure}|${g.pitches.join(",")}`;
+          if (seen.has(key)) continue;                  // one line per chord per measure
+          seen.add(key);
+
+          const a = analyzeStop(g.pitches, part.normalized);
+          if (!a) continue;
+
+          // Only unplayable chords get a suggested alternative
+          const fix = a.verdict === "error" ? suggestionText(g.pitches, part.normalized) : "";
+          const chord = g.pitches.map(midiToNote).join("+");
+          const kindName = { 2: "Double stop", 3: "Triple stop", 4: "Quadruple stop" }[a.noteCount] || `${a.noteCount}-note chord`;
+          const fingering = a.strings
+            ? `Best fingering: ${a.strings.map((s, i) => `${s} string${a.positions[i] === 0 ? " open" : ` +${a.positions[i]}`}`).join(", ")}.`
+            : "";
+
+          const push = (severity, message, note = "") => issues.push({
+            ruleId: "stops", severity,
+            direction: severity === "error" ? "STOP_ERROR" : "STOP_CAUTION",
+            pid: part.id, displayName: part.rawName, instrKey: part.normalized,
+            measure: g.measure, onsetQ: g.onsetQ,
+            concertMidi: g.pitches[g.pitches.length - 1],
+            concertNote: chord, writtenNote: null, safeRange: null,
+            message, note,
+          });
+
+          // ── Geometry problems outrank bow limits ──
+          if (a.reason === "too-many") {
+            push("error", `${a.noteCount} notes at once on a four-string instrument — mark the passage div., or thin the chord.`, fix);
+            continue;
+          }
+          if (a.reason === "no-assignment") {
+            push("error", `${chord} cannot be fingered — two of these pitches need the same string, or one lies beyond the reach of its neighbour.`, fix);
+            continue;
+          }
+          if (a.reason === "non-adjacent") {
+            push("error", `${kindName} ${chord} needs the ${a.strings.join(" and ")} strings with the ${a.skipped.join(" and ")} string${a.skipped.length > 1 ? "s" : ""} skipped between — the bow cannot sound both.`, fix);
+            continue;
+          }
+          if (a.reason === "span") {
+            push("error", `${kindName} ${chord} asks for a ${a.span}-semitone span between stopped fingers — beyond the hand (limit ${data.spanMax} on ${part.normalized.toLowerCase()}).`, fix);
+            continue;
+          }
+          if (a.reason === "span-stretch") {
+            push("caution", `${kindName} ${chord} needs a ${a.span}-semitone stretch — playable in upper positions but not low on the instrument.`, fingering);
+            continue;
+          }
+          if (a.reason === "barred-fifth") {
+            push("caution", `${chord} is a perfect 5th with both notes stopped — one finger must be barred across both strings, which is hard to tune.`, fingering);
+            continue;
+          }
+
+          // Geometry is fine. Triple and quadruple stops roll under the bow,
+          // which is ordinary string writing, so nothing is reported.
+        }
+      }
+      return issues;
+    },
+  },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -644,6 +930,7 @@ const COLORS = {
   text: "#F0EDEA",
   muted: "#888",
   success: "#22C55E",
+  fix:     "#4ADE80",
 };
 
 const css = `
@@ -860,8 +1147,8 @@ export default function App() {
 
               {/* Stats */}
               <div className="fade-up-1" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-                <StatCard label="Out of Range" value={totalOutOfRange} sub="notes to rewrite" color={totalOutOfRange > 0 ? COLORS.red : COLORS.success} border={totalOutOfRange > 0 ? COLORS.red : COLORS.border} />
-                <StatCard label="Caution Zone" value={totalCaution} sub="notes to review" color={totalCaution > 0 ? COLORS.amber : COLORS.success} border={totalCaution > 0 ? COLORS.amber : COLORS.border} />
+                <StatCard label="Needs Fixing" value={totalOutOfRange} sub="notes to rewrite" color={totalOutOfRange > 0 ? COLORS.red : COLORS.success} border={totalOutOfRange > 0 ? COLORS.red : COLORS.border} />
+                <StatCard label="Caution" value={totalCaution} sub="notes to review" color={totalCaution > 0 ? COLORS.amber : COLORS.success} border={totalCaution > 0 ? COLORS.amber : COLORS.border} />
                 <StatCard label="Parts Flagged" value={affectedParts} sub={`of ${Object.keys(result.partStats).length} parts`} color={COLORS.gold} border={COLORS.border} />
                 <StatCard label="Measures Flagged" value={affectedMeasures} sub={`of ${result.maxMeasure} total`} color="#A78BFA" border={COLORS.border} />
               </div>
@@ -917,7 +1204,7 @@ export default function App() {
                         {filtered.length} note{filtered.length !== 1 ? "s" : ""}
                       </div>
                     </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "72px 150px 110px 136px 1fr", padding: "8px 20px", borderBottom: `1px solid ${COLORS.border}`, fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: COLORS.muted }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "68px 132px 132px 128px 1fr", padding: "8px 20px", borderBottom: `1px solid ${COLORS.border}`, fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: COLORS.muted }}>
                       <span>Measure</span><span>Instrument</span><span>Sounds</span><span>Status</span><span>Detail</span>
                     </div>
                     <div style={{ maxHeight: 480, overflowY: "auto" }}>
@@ -988,24 +1275,25 @@ function ViolationRow({ v, i }) {
   const isCaution = v.severity === "caution";
   const isLow     = d === "LOW";
   const isHarm    = d === "HARMONIC_ERROR" || d === "HARMONIC_CAUTION";
+  const isStop    = d === "STOP_ERROR" || d === "STOP_CAUTION";
 
   const color  = isCaution ? COLORS.amber : isLow ? COLORS.blue : COLORS.red;
   const bg     = isCaution ? COLORS.amberDim : isLow ? COLORS.blueDim : COLORS.redDim;
-  const label  = d === "HIGH_CAUTION" ? "🟡 High Caution"
-               : d === "LOW_CAUTION"  ? "🟡 Low Caution"
-               : d === "HIGH"         ? "🔴 Too High"
-               : d === "LOW"          ? "🔴 Too Low"
-               : d === "HARMONIC_CAUTION" ? "🟡 Harmonic"
-               :                            "🔴 Harmonic";
+  const label  = {
+    HIGH: "🔴 Too High",             LOW: "🔵 Too Low",
+    HIGH_CAUTION: "🟡 High Caution", LOW_CAUTION: "🟡 Low Caution",
+    HARMONIC_ERROR: "🔴 Harmonic",   HARMONIC_CAUTION: "🟡 Harmonic",
+    STOP_ERROR: "🔴 Stop",           STOP_CAUTION: "🟡 Stop",
+  }[d] || (isCaution ? "🟡 Review" : "🔴 Needs Fixing");
 
   const detail = v.message
     || (v.safeRange ? `Safe range ${midiToNote(v.safeRange.low)}–${midiToNote(v.safeRange.high)}` : "");
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "72px 150px 110px 136px 1fr", padding: "10px 20px", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,.02)", borderBottom: `1px solid ${COLORS.border}`, alignItems: "center", fontSize: 13, gap: 4 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "68px 132px 132px 128px 1fr", padding: "10px 20px", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,.02)", borderBottom: `1px solid ${COLORS.border}`, alignItems: "center", fontSize: 13, gap: 4 }}>
       <span style={{ fontFamily: "'JetBrains Mono',monospace", color: COLORS.gold, fontWeight: 600 }}>m.{v.measure}</span>
       <span style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.displayName}</span>
-      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color }}>
+      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, color, fontSize: isStop ? 11 : 13, lineHeight: 1.3 }}>
         {v.concertNote}
         {v.writtenNote && <span style={{ fontSize: 10, color: COLORS.muted, fontWeight: 400 }}> (wr:{v.writtenNote})</span>}
         {isHarm && <span style={{ fontSize: 9, color: COLORS.muted, fontWeight: 400 }}> ◆</span>}
@@ -1015,7 +1303,14 @@ function ViolationRow({ v, i }) {
           {label}
         </span>
       </span>
-      <span style={{ fontSize: 12, color: COLORS.muted, lineHeight: 1.4 }}>{detail}</span>
+      <span style={{ fontSize: 12, color: COLORS.muted, lineHeight: 1.45 }}>
+        {detail}
+        {v.note && (
+          <span style={{ display: "block", marginTop: 4, color: COLORS.fix, fontSize: 11, lineHeight: 1.4 }}>
+            ↳ {v.note}
+          </span>
+        )}
+      </span>
     </div>
   );
 }
@@ -1045,7 +1340,7 @@ function PartCard({ s, onClick, active }) {
         <span style={{ fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: s.outOfRangeCount > 0 ? COLORS.red : COLORS.amber, fontWeight: 700 }}>{s.vCount}</span>
       </div>
       <div style={{ display: "flex", gap: 8, fontSize: 10 }}>
-        {s.outOfRangeCount > 0 && <span style={{ color: COLORS.red }}>🔴 {s.outOfRangeCount} out of range</span>}
+        {s.outOfRangeCount > 0 && <span style={{ color: COLORS.red }}>🔴 {s.outOfRangeCount} to fix</span>}
         {s.cautionCount > 0 && <span style={{ color: COLORS.amber }}>🟡 {s.cautionCount} caution</span>}
       </div>
     </button>
